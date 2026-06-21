@@ -1,275 +1,159 @@
-import flet as ft
-import requests
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import random
+import string
+import uvicorn
+from twilio.rest import Client
 
-# Base URL pointing directly to our local FastAPI server engine
-BACKEND_API_BASE = "http://127.0.0.1:8000/api/auth"
+# --- PostgreSQL Engine Modules ---
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import Column, String, Integer
 
-def main(page: ft.Page):
-    # --- Local Workspace Client App Tracking Flags ---
-    app_state = {
-        "user_phone": "+977",
-        "user_name": ""
-    }
+app = FastAPI()
 
-    def route_to(screen_name):
-        page.clean()
-        if screen_name == "login":
-            page.add(build_login_screen())
-        elif screen_name == "register":
-            page.add(build_register_screen())
-        page.update()
+# 1. Database Connection String Configuration (Updated to test_db)
+DATABASE_URL = "postgresql+asyncpg://postgres:admin@localhost:5432/test_db"
 
-    # --- View 1: Login ---
-    def build_login_screen():
-        phone_input = ft.TextField(
-            value=app_state["user_phone"],
-            label="Phone Number",
-            label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
-            text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
-            border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=60, fill_color=ft.Colors.WHITE, filled=True,
-        )
+async_engine = create_async_engine(DATABASE_URL, echo=False)
+AsyncSessionLocal = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+Base = declarative_base()
 
-        otp_input = ft.TextField(
-            label="Enter 6-Digit Alphanumeric Code",
-            label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
-            text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
-            hint_text="A1B2C3",
-            max_length=6,
-            border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=60, fill_color=ft.Colors.WHITE, filled=True,
-            visible=False 
-        )
+# 2. Define Table Database Models Schemas (Updated to match user_info)
+class UserModel(Base):
+    __tablename__ = "user_info"
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, nullable=False)  # Matches your SQL 'username' column
 
-        sms_status = ft.Text("", color=ft.Colors.GREEN_800, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
-        error_msg = ft.Text("", color=ft.Colors.RED_800, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER)
+class OTPModel(Base):
+    __tablename__ = "active_otps"
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, unique=True, index=True, nullable=False)
+    code = Column(String, nullable=False)
+
+# Auto-initialize and generate tables on application boot if they don't exist
+@app.on_event("startup")
+async def startup_event():
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+# --- Twilio SMS Stub Infrastructure ---
+TWILIO_ACCOUNT_SID = "your_twilio_account_sid_here"
+TWILIO_AUTH_TOKEN = "your_twilio_auth_token_here"
+TWILIO_SENDER_NUMBER = "+1234567890"
+
+def transmit_real_sms(target_phone: str, verification_code: str):
+    try:
+        if "your_" in TWILIO_ACCOUNT_SID:
+            print(f"\n[FALLBACK LOG] Target Code for {target_phone}: {verification_code}\n")
+            return True
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(body=f"Code: {verification_code}", from_=TWILIO_SENDER_NUMBER, to=target_phone)
+        return True
+    except Exception:
+        return False
+
+# --- Pydantic Data Validation Schemas ---
+class OTPRequest(BaseModel):
+    phone: str
+    purpose: str
+
+class RegistrationPayload(BaseModel):
+    phone: str
+    name: str  # Kept as 'name' to receive from Flet frontend payload cleanly
+    otp_code: str
+
+class LoginPayload(BaseModel):
+    phone: str
+    otp_code: str
+
+# --- PostgreSQL API Endpoint Logic Engines ---
+
+@app.post("/api/auth/request-otp")
+async def request_otp_routing(payload: OTPRequest):
+    phone = payload.phone.strip()
+    
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        user_query = await session.execute(select(UserModel).where(UserModel.phone == phone))
+        existing_profile = user_query.scalar_one_or_none()
+
+        if payload.purpose == "login" and not existing_profile:
+            raise HTTPException(status_code=404, detail="Profile not registered. Please create an account first.")
+        if payload.purpose == "registration" and existing_profile:
+            raise HTTPException(status_code=400, detail="This phone number is already registered.")
+
+        secure_otp = "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+        otp_query = await session.execute(select(OTPModel).where(OTPModel.phone == phone))
+        existing_otp = otp_query.scalar_one_or_none()
+
+        if existing_otp:
+            existing_otp.code = secure_otp
+        else:
+            new_otp_record = OTPModel(phone=phone, code=secure_otp)
+            session.add(new_otp_record)
         
-        request_sms_btn = ft.ElevatedButton(
-            content=ft.Text("Request Sign-in Code", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-            height=50, width=float("inf"),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, shape=ft.RoundedRectangleBorder(radius=12)),
-        )
+        await session.commit()
 
-        login_action_btn = ft.ElevatedButton(
-            content=ft.Text("Verify & Login", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-            height=54, width=float("inf"),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, shape=ft.RoundedRectangleBorder(radius=12)),
-            visible=False
-        )
+    transmit_real_sms(phone, secure_otp)
+    return {"status": "success", "message": "Verification code transmitted successfully."}
 
-        def on_request_sms(e):
-            phone = phone_input.value.strip()
-            try:
-                # Live API POST Request to the backend server
-                response = requests.post(
-                    f"{BACKEND_API_BASE}/request-otp",
-                    json={"phone": phone, "purpose": "login"}
-                )
-                data = response.json()
-                
-                if response.status_code == 200:
-                    error_msg.value = ""
-                    app_state["user_phone"] = phone
-                    sms_status.value = data.get("message", "SMS Sent!")
-                    otp_input.visible = True
-                    login_action_btn.visible = True
-                    request_sms_btn.visible = False
-                else:
-                    error_msg.value = data.get("detail", "Failed to process target endpoint requests.")
-            except Exception:
-                error_msg.value = "Network Error: Could not connect to backend server api pipeline."
-            page.update()
 
-        def on_verify_and_login(e):
-            phone = phone_input.value.strip()
-            otp = otp_input.value.strip().upper()
-            try:
-                response = requests.post(
-                    f"{BACKEND_API_BASE}/verify-login",
-                    json={"phone": phone, "otp_code": otp}
-                )
-                data = response.json()
-                
-                if response.status_code == 200:
-                    error_msg.value = ""
-                    sms_status.value = f"Success! Profile loaded: {data['user_profile']['name']}"
-                else:
-                    error_msg.value = data.get("detail", "Security mismatch validation.")
-            except Exception:
-                error_msg.value = "Network communications error validation tracking frame pipeline."
-            page.update()
+@app.post("/api/auth/register-user")
+async def register_user_pipeline(payload: RegistrationPayload):
+    phone = payload.phone.strip()
+    from sqlalchemy import select, delete
 
-        request_sms_btn.on_click = on_request_sms
-        login_action_btn.on_click = on_verify_and_login
+    async with AsyncSessionLocal() as session:
+        otp_query = await session.execute(select(OTPModel).where(OTPModel.phone == phone))
+        otp_record = otp_query.scalar_one_or_none()
 
-        return ft.Container(
-            content=ft.Column([
-                ft.Text("💇 Salon Sign-In", size=32, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                ft.Container(height=30),
-                phone_input,
-                ft.Container(height=12),
-                otp_input,
-                ft.Container(height=10),
-                sms_status,
-                error_msg,
-                ft.Container(height=20),
-                request_sms_btn,
-                login_action_btn,
-                ft.Container(height=15),
-                ft.TextButton(
-                    content=ft.Text("New here? Create New Account", size=14, color=ft.Colors.BLUE_900, weight=ft.FontWeight.BOLD),
-                    on_click=lambda _: route_to("register")
-                )
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER),
-            padding=24, expand=True, bgcolor=ft.Colors.GREY_100
-        )
+        if not otp_record or otp_record.code != payload.otp_code.upper():
+            raise HTTPException(status_code=401, detail="Security Mismatch: Code is invalid or expired.")
 
-    # --- View 2: Registration ---
-    def build_register_screen():
-        phone_input = ft.TextField(
-            value="+977",
-            label="Mobile Phone Number",
-            label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
-            text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
-            border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=56, fill_color=ft.Colors.WHITE, filled=True
-        )
+        await session.execute(delete(OTPModel).where(OTPModel.phone == phone))
 
-        name_input = ft.TextField(
-            label="Full Account Holder Name",
-            label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
-            text_style=ft.TextStyle(color=ft.Colors.BLACK),
-            border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=56, fill_color=ft.Colors.WHITE, filled=True
-        )
+        user_query = await session.execute(select(UserModel).where(UserModel.phone == phone))
+        user_profile = user_query.scalar_one_or_none()
 
-        otp_boxes = []
-        
-        def make_focus_jumper(index):
-            def jumper(e):
-                val = e.control.value
-                if len(val) >= 1:
-                    e.control.value = val[-1].upper()
-                    if index < 5:
-                        otp_boxes[index + 1].focus()
-                page.update()
-            return jumper
+        if user_profile:
+            user_profile.username = payload.name.strip()  # Maps frontend name input to database username column
+        else:
+            new_user = UserModel(phone=phone, username=payload.name.strip())
+            session.add(new_user)
 
-        for i in range(6):
-            box = ft.TextField(
-                width=45, height=50, border_color=ft.Colors.BLACK, border_width=2,
-                border_radius=8, text_align=ft.TextAlign.CENTER, filled=True, fill_color=ft.Colors.WHITE,
-                text_style=ft.TextStyle(weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK, size=18),
-                max_length=2, counter=None, dense=True,
-                on_change=make_focus_jumper(i)
-            )
-            otp_boxes.append(box)
+        await session.commit()
+    
+    return {"status": "success", "message": "Account created successfully!"}
 
-        otp_row_container = ft.Row(otp_boxes, alignment=ft.MainAxisAlignment.CENTER, spacing=6, visible=False)
-        otp_section_label = ft.Text("Enter 6-Character Alphanumeric Code Below:", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK, visible=False)
 
-        sms_status = ft.Text("", color=ft.Colors.GREEN_800, weight=ft.FontWeight.BOLD)
-        error_msg = ft.Text("", color=ft.Colors.RED_800, weight=ft.FontWeight.BOLD)
+@app.post("/api/auth/verify-login")
+async def verify_login_pipeline(payload: LoginPayload):
+    phone = payload.phone.strip()
+    from sqlalchemy import select, delete
 
-        send_code_btn = ft.ElevatedButton(
-            content=ft.Text("Send SMS Verification Code", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-            height=50, width=float("inf"),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_900, shape=ft.RoundedRectangleBorder(radius=12))
-        )
+    async with AsyncSessionLocal() as session:
+        otp_query = await session.execute(select(OTPModel).where(OTPModel.phone == phone))
+        otp_record = otp_query.scalar_one_or_none()
 
-        submit_registration_btn = ft.ElevatedButton(
-            content=ft.Text("Complete Account Creation", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-            height=54, width=float("inf"),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_800, shape=ft.RoundedRectangleBorder(radius=12)),
-            visible=False
-        )
+        if not otp_record or otp_record.code != payload.otp_code.upper():
+            raise HTTPException(status_code=401, detail="Security Mismatch: Code is invalid or expired.")
 
-        def on_send_verification(e):
-            phone = phone_input.value.strip()
-            name = name_input.value.strip()
-            
-            if len(phone) < 7 or not name:
-                error_msg.value = "Fields cannot be empty."
-                page.update()
-                return
+        user_query = await session.execute(select(UserModel).where(UserModel.phone == phone))
+        user_profile = user_query.scalar_one_or_none()
 
-            try:
-                response = requests.post(
-                    f"{BACKEND_API_BASE}/request-otp",
-                    json={"phone": phone, "purpose": "registration"}
-                )
-                data = response.json()
-                
-                if response.status_code == 200:
-                    error_msg.value = ""
-                    sms_status.value = data.get("message", "SMS Dispatched!")
-                    otp_section_label.visible = True
-                    otp_row_container.visible = True
-                    submit_registration_btn.visible = True
-                    send_code_btn.visible = False
-                    page.update()
-                    otp_boxes[0].focus()
-                else:
-                    error_msg.value = data.get("detail", "Error processing request endpoint parameters.")
-            except Exception:
-                error_msg.value = "Network connection failure tracking backend services."
-            page.update()
+        if not user_profile:
+            raise HTTPException(status_code=404, detail="Database lookup mismatch error.")
 
-        def on_register_submit(e):
-            phone = phone_input.value.strip()
-            name = name_input.value.strip()
-            collected_otp = "".join(box.value.strip().upper() for box in otp_boxes)
-            
-            try:
-                response = requests.post(
-                    f"{BACKEND_API_BASE}/register-user",
-                    json={"phone": phone, "name": name, "otp_code": collected_otp}
-                )
-                data = response.json()
-                
-                if response.status_code == 200:
-                    error_msg.value = ""
-                    sms_status.value = "Account verified & saved! Redirecting to login workspace..."
-                    page.update()
-                    import time
-                    time.sleep(1.2)
-                    route_to("login")
-                else:
-                    error_msg.value = data.get("detail", "Verification processing failure exception.")
-            except Exception:
-                error_msg.value = "Network response handling communication anomaly pipeline error."
-            page.update()
+        await session.execute(delete(OTPModel).where(OTPModel.phone == phone))
+        await session.commit()
 
-        send_code_btn.on_click = on_send_verification
-        submit_registration_btn.on_click = on_register_submit
-
-        return ft.Container(
-            content=ft.Column([
-                ft.Text("📝 Create Account", size=32, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                ft.Container(height=25),
-                name_input,
-                ft.Container(height=12),
-                phone_input,
-                ft.Container(height=15),
-                otp_section_label,
-                otp_row_container,
-                ft.Container(height=10),
-                sms_status,
-                error_msg,
-                ft.Container(height=20),
-                send_code_btn,
-                submit_registration_btn,
-                ft.Container(height=15),
-                ft.TextButton(
-                    content=ft.Text("Already registered? Sign In", size=14, color=ft.Colors.BLUE_900, weight=ft.FontWeight.BOLD),
-                    on_click=lambda _: route_to("login")
-                )
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER),
-            padding=24, expand=True, bgcolor=ft.Colors.GREY_100
-        )
-
-    # --- System Init Boot Configurations ---
-    page.title = "Salon Core Application"
-    page.window_width = 400
-    page.window_height = 740
-    page.window_resizable = False
-    page.add(build_login_screen())
+        return {
+            "status": "success",
+            "user_profile": {"phone": user_profile.phone, "name": user_profile.username} # Passes username back as name to Flet app
+        }
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
