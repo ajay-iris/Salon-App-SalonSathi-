@@ -7,8 +7,8 @@ BACKEND_API_BASE = "http://127.0.0.1:8000/api/auth"
 def main(page: ft.Page):
     # --- Local Workspace Client App Tracking Flags ---
     app_state = {
-        "user_phone": "+977",
-        "user_name": "Valued Customer" # Default fallback placeholder name
+        "user_phone": "", # Tracks just the 10 raw digits typed by the user
+        "user_name": "Valued Customer"
     }
 
     def route_to(screen_name):
@@ -24,12 +24,15 @@ def main(page: ft.Page):
     # --- View 1: Login ---
     def build_login_screen():
         phone_input = ft.TextField(
-            value=app_state["user_phone"],
             label="Phone Number",
+            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)), # Fixed here
+            hint_text="98XXXXXXXX",
             label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
             text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
+            keyboard_type=ft.KeyboardType.PHONE,
             border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=60, fill_color=ft.Colors.WHITE, filled=True,
         )
+        
 
         otp_input = ft.TextField(
             label="Enter 6-Digit Alphanumeric Code",
@@ -58,44 +61,42 @@ def main(page: ft.Page):
         )
 
         def on_request_sms(e):
-            phone = phone_input.value.strip()
+            # Combine the static country code with the user's input digits to send to your backend server
+            full_phone_number = f"+977{phone_input.value.strip()}"
             try:
                 response = requests.post(
                     f"{BACKEND_API_BASE}/request-otp",
-                    json={"phone": phone, "purpose": "login"}
+                    json={"phone": full_phone_number, "purpose": "login"}
                 )
                 data = response.json()
                 
                 if response.status_code == 200:
                     error_msg.value = ""
-                    app_state["user_phone"] = phone
+                    app_state["user_phone"] = full_phone_number
                     sms_status.value = data.get("message", "SMS Sent!")
                     otp_input.visible = True
                     login_action_btn.visible = True
                     request_sms_btn.visible = False
                 else:
-                    error_msg.value = data.get("detail", "Failed to process target endpoint requests.")
+                    error_msg.value = data.get("detail", "Failed to process request.")
             except Exception:
-                error_msg.value = "Network Error: Could not connect to backend server."
+                error_msg.value = "Network Error: Could not connect to server."
             page.update()
 
         def on_verify_and_login(e):
-            phone = phone_input.value.strip()
+            full_phone_number = f"+977{phone_input.value.strip()}"
             otp = otp_input.value.strip().upper()
             try:
                 response = requests.post(
                     f"{BACKEND_API_BASE}/verify-login",
-                    json={"phone": phone, "otp_code": otp}
+                    json={"phone": full_phone_number, "otp_code": otp}
                 )
                 data = response.json()
                 
                 if response.status_code == 200:
                     error_msg.value = ""
-                    # Capture actual user profile details from DB
                     app_state["user_name"] = data["user_profile"]["name"]
                     app_state["user_phone"] = data["user_profile"]["phone"]
-                    
-                    # Direct user to the brand new Pathao style service screen
                     route_to("dashboard")
                 else:
                     error_msg.value = data.get("detail", "Security mismatch validation.")
@@ -131,10 +132,12 @@ def main(page: ft.Page):
     # --- View 2: Registration ---
     def build_register_screen():
         phone_input = ft.TextField(
-            value="+977",
             label="Mobile Phone Number",
+            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)), # Fixed here
+            hint_text="98XXXXXXXX",
             label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
             text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
+            keyboard_type=ft.KeyboardType.PHONE,
             border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=56, fill_color=ft.Colors.WHITE, filled=True
         )
 
@@ -187,10 +190,10 @@ def main(page: ft.Page):
         )
 
         def on_send_verification(e):
-            phone = phone_input.value.strip()
+            full_phone_number = f"+977{phone_input.value.strip()}"
             name = name_input.value.strip()
             
-            if len(phone) < 7 or not name:
+            if not phone_input.value.strip() or not name:
                 error_msg.value = "Fields cannot be empty."
                 page.update()
                 return
@@ -198,7 +201,7 @@ def main(page: ft.Page):
             try:
                 response = requests.post(
                     f"{BACKEND_API_BASE}/request-otp",
-                    json={"phone": phone, "purpose": "registration"}
+                    json={"phone": full_phone_number, "purpose": "registration"}
                 )
                 data = response.json()
                 
@@ -218,14 +221,14 @@ def main(page: ft.Page):
             page.update()
 
         def on_register_submit(e):
-            phone = phone_input.value.strip()
+            full_phone_number = f"+977{phone_input.value.strip()}"
             name = name_input.value.strip()
             collected_otp = "".join(box.value.strip().upper() for box in otp_boxes)
             
             try:
                 response = requests.post(
                     f"{BACKEND_API_BASE}/register-user",
-                    json={"phone": phone, "name": name, "otp_code": collected_otp}
+                    json={"phone": full_phone_number, "name": name, "otp_code": collected_otp}
                 )
                 if response.status_code == 200:
                     error_msg.value = ""
@@ -268,9 +271,8 @@ def main(page: ft.Page):
             padding=24, expand=True, bgcolor=ft.Colors.GREY_100
         )
 
-    # --- NEW View 3: Pathao Style Booking Dashboard ---
+    # --- View 3: Pathao Style Booking Dashboard ---
     def build_dashboard_screen():
-        # High contrast greeting banner header
         header_section = ft.Row([
             ft.Column([
                 ft.Text(f"Hello, {app_state['user_name']} 👋", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
@@ -279,55 +281,39 @@ def main(page: ft.Page):
             ft.IconButton(icon=ft.Icons.LOGOUT_ROUNDED, icon_color=ft.Colors.RED_800, on_click=lambda _: route_to("login"))
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
-        # Simulated live interactive map container canvas
         mock_map = ft.Container(
             content=ft.Stack([
-                ft.Container(expand=True, bgcolor=ft.Colors.BLUE_GREY_100), # Map fallback background
-                # Tiny dots visually simulating riders moving around your current location
+                ft.Container(expand=True, bgcolor=ft.Colors.BLUE_GREY_100),
                 ft.Icon(name=ft.Icons.LOCATION_ON, color=ft.Colors.RED, size=36, left=160, top=70),
                 ft.Icon(name=ft.Icons.MOTORCYCLE, color=ft.Colors.BLACK, size=22, left=80, top=40),
                 ft.Icon(name=ft.Icons.LOCAL_TAXI, color=ft.Colors.AMBER_700, size=22, left=240, top=110),
                 ft.Text("📍 Map View Sandbox Mode", size=11, color=ft.Colors.GREY_700, left=10, bottom=10, weight=ft.FontWeight.W_600)
             ]),
-            height=200,
-            border_radius=16,
-            border=ft.Border(ft.BorderSide(2, ft.Colors.BLACK)),
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS
+            height=200, border_radius=16, border=ft.Border(ft.BorderSide(2, ft.Colors.BLACK)), clip_behavior=ft.ClipBehavior.ANTI_ALIAS
         )
 
-        # Selection trigger action wrapper function
-        def handle_booking(service_type):
-            print(f"Booking flow launched for: {service_type}")
-            # You can handle routing options to customized sub-booking payment windows here later
-
-        # Service Option Card 1: Hire Rider (Bike)
         rider_card = ft.Container(
             content=ft.Column([
                 ft.Icon(name=ft.Icons.MOTORCYCLE_ROUNDED, size=40, color=ft.Colors.WHITE),
                 ft.Text("Hire a Rider", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                 ft.Text("Fastest bike trips", size=11, color=ft.Colors.GREY_300)
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=ft.Colors.BLUE_900,
-            padding=16, border_radius=16, expand=True, height=130,
-            on_click=lambda _: handle_booking("Rider (Bike)")
+            bgcolor=ft.Colors.BLUE_900, padding=16, border_radius=16, expand=True, height=130,
+            on_click=lambda _: print("Booking Bike flow initiated...")
         )
 
-        # Service Option Card 2: Hire Taxi (Car)
         taxi_card = ft.Container(
             content=ft.Column([
                 ft.Icon(name=ft.Icons.LOCAL_TAXI_ROUNDED, size=40, color=ft.Colors.BLACK),
                 ft.Text("Book a Taxi", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
                 ft.Text("Comfortable cars", size=11, color=ft.Colors.GREY_800)
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=ft.Colors.AMBER_400,
-            padding=16, border_radius=16, expand=True, height=130,
+            bgcolor=ft.Colors.AMBER_400, padding=16, border_radius=16, expand=True, height=130,
             border=ft.Border(ft.BorderSide(2, ft.Colors.BLACK)),
-            on_click=lambda _: handle_booking("Taxi (Car)")
+            on_click=lambda _: print("Booking Taxi flow initiated...")
         )
 
         services_row = ft.Row([rider_card, taxi_card], spacing=14)
-
-        # Nearby listing elements section
         history_label = ft.Text("Available Nearby Options", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK)
         
         drivers_list = ft.ListView([
@@ -347,15 +333,8 @@ def main(page: ft.Page):
 
         return ft.Container(
             content=ft.Column([
-                header_section,
-                ft.Container(height=15),
-                mock_map,
-                ft.Container(height=20),
-                services_row,
-                ft.Container(height=20),
-                history_label,
-                ft.Container(height=5),
-                drivers_list
+                header_section, ft.Container(height=15), mock_map, ft.Container(height=20),
+                services_row, ft.Container(height=20), history_label, ft.Container(height=5), drivers_list
             ], alignment=ft.MainAxisAlignment.START, cross_axis_alignment=ft.CrossAxisAlignment.START),
             padding=20, expand=True, bgcolor=ft.Colors.GREY_50
         )
