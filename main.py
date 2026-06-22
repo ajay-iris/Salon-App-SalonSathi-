@@ -1,5 +1,6 @@
 import flet as ft
 import requests
+from dashboard import build_dashboard_screen
 
 # Base URL pointing directly to our local FastAPI server engine
 BACKEND_API_BASE = "http://127.0.0.1:8000/api/auth"
@@ -18,7 +19,8 @@ def main(page: ft.Page):
         elif screen_name == "register":
             page.add(build_register_screen())
         elif screen_name == "dashboard":
-            page.add(build_dashboard_screen())
+            # Pass page context, navigation engine callback, and state mapping dictionaries cleanly
+            page.add(build_dashboard_screen(page, route_to, app_state))
         page.update()
 
     # --- View 1: Login ---
