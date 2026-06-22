@@ -27,14 +27,13 @@ def main(page: ft.Page):
     def build_login_screen():
         phone_input = ft.TextField(
             label="Phone Number",
-            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)), # Fixed here
+            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)),
             hint_text="98XXXXXXXX",
             label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
             text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
             keyboard_type=ft.KeyboardType.PHONE,
             border_color=ft.Colors.BLACK, border_width=2, border_radius=12, height=60, fill_color=ft.Colors.WHITE, filled=True,
         )
-        
 
         otp_input = ft.TextField(
             label="Enter 6-Digit Alphanumeric Code",
@@ -63,7 +62,6 @@ def main(page: ft.Page):
         )
 
         def on_request_sms(e):
-            # Combine the static country code with the user's input digits to send to your backend server
             full_phone_number = f"+977{phone_input.value.strip()}"
             try:
                 response = requests.post(
@@ -135,7 +133,7 @@ def main(page: ft.Page):
     def build_register_screen():
         phone_input = ft.TextField(
             label="Mobile Phone Number",
-            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)), # Fixed here
+            prefix=ft.Text("+977 ", style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD, size=16)),
             hint_text="98XXXXXXXX",
             label_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.W_600),
             text_style=ft.TextStyle(color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD),
@@ -273,80 +271,12 @@ def main(page: ft.Page):
             padding=24, expand=True, bgcolor=ft.Colors.GREY_100
         )
 
-    # --- View 3: Pathao Style Booking Dashboard ---
-    def build_dashboard_screen():
-        header_section = ft.Row([
-            ft.Column([
-                ft.Text(f"Hello, {app_state['user_name']} 👋", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                ft.Text("Where are we heading today?", size=14, color=ft.Colors.GREY_800),
-            ]),
-            ft.IconButton(icon=ft.Icons.LOGOUT_ROUNDED, icon_color=ft.Colors.RED_800, on_click=lambda _: route_to("login"))
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        mock_map = ft.Container(
-            content=ft.Stack([
-                ft.Container(expand=True, bgcolor=ft.Colors.BLUE_GREY_100),
-                ft.Icon(name=ft.Icons.LOCATION_ON, color=ft.Colors.RED, size=36, left=160, top=70),
-                ft.Icon(name=ft.Icons.MOTORCYCLE, color=ft.Colors.BLACK, size=22, left=80, top=40),
-                ft.Icon(name=ft.Icons.LOCAL_TAXI, color=ft.Colors.AMBER_700, size=22, left=240, top=110),
-                ft.Text("📍 Map View Sandbox Mode", size=11, color=ft.Colors.GREY_700, left=10, bottom=10, weight=ft.FontWeight.W_600)
-            ]),
-            height=200, border_radius=16, border=ft.Border(ft.BorderSide(2, ft.Colors.BLACK)), clip_behavior=ft.ClipBehavior.ANTI_ALIAS
-        )
-
-        rider_card = ft.Container(
-            content=ft.Column([
-                ft.Icon(name=ft.Icons.MOTORCYCLE_ROUNDED, size=40, color=ft.Colors.WHITE),
-                ft.Text("Hire a Rider", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                ft.Text("Fastest bike trips", size=11, color=ft.Colors.GREY_300)
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=ft.Colors.BLUE_900, padding=16, border_radius=16, expand=True, height=130,
-            on_click=lambda _: print("Booking Bike flow initiated...")
-        )
-
-        taxi_card = ft.Container(
-            content=ft.Column([
-                ft.Icon(name=ft.Icons.LOCAL_TAXI_ROUNDED, size=40, color=ft.Colors.BLACK),
-                ft.Text("Book a Taxi", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                ft.Text("Comfortable cars", size=11, color=ft.Colors.GREY_800)
-            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=ft.Colors.AMBER_400, padding=16, border_radius=16, expand=True, height=130,
-            border=ft.Border(ft.BorderSide(2, ft.Colors.BLACK)),
-            on_click=lambda _: print("Booking Taxi flow initiated...")
-        )
-
-        services_row = ft.Row([rider_card, taxi_card], spacing=14)
-        history_label = ft.Text("Available Nearby Options", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK)
-        
-        drivers_list = ft.ListView([
-            ft.ListTile(
-                leading=ft.Icon(ft.Icons.PERSON_PIN_CIRCLE_OUTLINED, color=ft.Colors.BLUE_900),
-                title=ft.Text("Rider Ramesh M. (Bike)", weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                subtitle=ft.Text("2 mins away • ⭐ 4.9", color=ft.Colors.GREY_700),
-                trailing=ft.Text("Rs. 120", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800)
-            ),
-            ft.ListTile(
-                leading=ft.Icon(ft.Icons.PERSON_PIN_CIRCLE_OUTLINED, color=ft.Colors.AMBER_800),
-                title=ft.Text("Sita Thapa (Premium Taxi)", weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
-                subtitle=ft.Text("5 mins away • ⭐ 4.8", color=ft.Colors.GREY_700),
-                trailing=ft.Text("Rs. 450", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_800)
-            ),
-        ], expand=True, spacing=4)
-
-        return ft.Container(
-            content=ft.Column([
-                header_section, ft.Container(height=15), mock_map, ft.Container(height=20),
-                services_row, ft.Container(height=20), history_label, ft.Container(height=5), drivers_list
-            ], alignment=ft.MainAxisAlignment.START, cross_axis_alignment=ft.CrossAxisAlignment.START),
-            padding=20, expand=True, bgcolor=ft.Colors.GREY_50
-        )
-
     # --- System Init Boot Configurations ---
     page.title = "Salon Core Application"
-    page.window_width = 400
+    page.window.width = 400
     page.window_height = 740
     page.window_resizable = False
     page.add(build_login_screen())
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.run(main)

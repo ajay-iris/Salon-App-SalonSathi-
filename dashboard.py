@@ -1,5 +1,6 @@
 import flet as ft
 import requests
+import threading  # ✅ FIXED: Imported threading module
 
 def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None):
     if app_state is None:
@@ -45,31 +46,27 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
                         card = ft.Container(
                             content=ft.Column([
                                 ft.Stack([
-                                    # Fallback placeholder image matching template layout
                                     ft.Image(
                                         src=salon.get("image") if salon.get("image") else "https://picsum.photos/300/200", 
                                         width=float("inf"), 
                                         height=140, 
                                         fit=ft.ImageFit.COVER
                                     ),
-                                    # Tag badge
                                     ft.Container(
                                         content=ft.Text(
                                             salon.get("tag", "Salon"),
                                             size=10, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD
                                         ),
-                                        bgcolor=ft.Colors.GREEN_700, padding=ft.padding.all(6), border_radius=6, top=10, left=10
+                                        bgcolor=ft.Colors.GREEN_700, padding=6, border_radius=6, top=10, left=10
                                     ),
-                                    # ETA badge
                                     ft.Container(
                                         content=ft.Text(
                                             salon.get("eta", "-- mins"),
                                             size=11, color=ft.Colors.BLACK, weight=ft.FontWeight.BOLD
                                         ),
-                                        bgcolor=ft.Colors.WHITE, padding=ft.padding.all(6), border_radius=6, bottom=10, right=10
+                                        bgcolor=ft.Colors.WHITE, padding=6, border_radius=6, bottom=10, right=10
                                     )
                                 ]),
-                                # Details section
                                 ft.Container(
                                     content=ft.Column([
                                         ft.Row([
@@ -119,7 +116,7 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
         content=ft.Row([
             ft.Column([
                 ft.Row([
-                    ft.Icon(name=ft.Icons.NOT_LISTED_LOCATION, color=ft.Colors.RED, size=18),
+                    ft.Icon(ft.Icons.NOT_LISTED_LOCATION, color=ft.Colors.RED, size=18),
                     ft.Text("Current Location 📍", size=11, color=ft.Colors.GREY_600, weight=ft.FontWeight.BOLD),
                 ], spacing=4),
                 ft.Text("Kathmandu, Nepal", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK)
@@ -131,7 +128,7 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
                 on_click=lambda _: route_to_callback("login") if route_to_callback else None
             )
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        padding=ft.padding.only(bottom=15)
+        padding=ft.Padding(left=0, top=0, right=0, bottom=15)
     )
 
     # --- Horizontal Quick Filters Slider ---
@@ -168,7 +165,7 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
             width=75, height=75, bgcolor=ft.Colors.GREY_200, border_radius=12, ink=True,
             on_click=lambda _: print("Makeup filter selected")
         )
-    ], scroll=ft.ScrollMode.HOVER, spacing=10)
+    ], scroll=ft.ScrollMode.HIDDEN, spacing=10)
 
     display_username = app_state.get("user_name") or app_state.get("name") or "Customer"
 
@@ -180,23 +177,14 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
         ft.Container(height=5),
         service_categories,
         ft.Container(height=20),
-        
-        # Center-align the loaders cleanly inside layout rules
         ft.Row([loading_indicator, error_display], alignment=ft.MainAxisAlignment.CENTER),
-        
         ft.Text("Nearest Active Salons Around You", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK),
         ft.Container(height=8),
         salon_cards_list
     ]
     
-    # --- ✅ FIX: THE SAFEST WAY TO TRIGGER POST-RENDER CHECKS ---
-    # We assign our live fetch directly to Flet's safe background thread engine loop
-    # as an explicit run task after layout delivery returns cleanly!
-    def post_render_callback(e):
-        load_live_salons()
-
-    # We map a hidden button or direct sequence assignment to fetch safely
-    page.run_task(load_live_salons)
+    # ✅ FIXED HERE: Using standard threading instead of page.run_task for synchronous function
+    threading.Thread(target=load_live_salons, daemon=True).start()
 
     return ft.Container(
         content=dashboard_content,
@@ -204,3 +192,16 @@ def build_dashboard_screen(page: ft.Page, route_to_callback=None, app_state=None
         expand=True,
         bgcolor=ft.Colors.GREY_50
     )
+
+if __name__ == "__main__":
+    def sandbox_main(page: ft.Page):
+        page.title = "Dashboard Sandbox Live View"
+        page.window_width = 400
+        page.window_height = 740
+        page.window_resizable = False
+        
+        mock_state = {"user_name": "Test Account"}
+        page.add(build_dashboard_screen(page, route_to_callback=None, app_state=mock_state))
+        page.update()
+
+    ft.run(sandbox_main)
